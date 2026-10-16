@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './firebase';
 import { collection, getDocs, addDoc, deleteDoc, doc, setDoc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
-import { Lock, Plus, Trash2, Calendar, Newspaper, FolderPlus, Image as ImageIcon, LogOut, Edit3, Info, MapPin } from 'lucide-react';
+import { Lock, Plus, Trash2, Calendar, Newspaper, FolderPlus, Image as ImageIcon, LogOut, Edit3, Info, Upload } from 'lucide-react';
 
 export default function AdminApp() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -12,7 +12,7 @@ export default function AdminApp() {
   const [scheduleList, setScheduleList] = useState([]);
   const [albumsList, setAlbumsList] = useState([]);
 
-  // Поля для редагування новин
+  // Новини
   const [editingNewsId, setEditingNewsId] = useState(null);
   const [newsTitle, setNewsTitle] = useState('');
   const [newsDate, setNewsDate] = useState('');
@@ -21,7 +21,7 @@ export default function AdminApp() {
   const [newsContent, setNewsContent] = useState('');
   const [newsImage, setNewsImage] = useState('');
 
-  // Поля для редагування розкладу
+  // Розклад
   const [editingSchId, setEditingSchId] = useState(null);
   const [schDayOfWeek, setSchDayOfWeek] = useState('Неділя');
   const [schDay, setSchDay] = useState(new Date().getDate());
@@ -32,7 +32,7 @@ export default function AdminApp() {
   const [schDesc, setSchDesc] = useState('');
   const [isWeekly, setIsWeekly] = useState(false);
 
-  // Поля для фотоальбому
+  // Фотоальбом
   const [editingAlbumId, setEditingAlbumId] = useState(null);
   const [albumTitle, setAlbumTitle] = useState('');
   const [albumSubtitle, setAlbumSubtitle] = useState('');
@@ -92,9 +92,51 @@ export default function AdminApp() {
     else alert("Невірний пароль!");
   };
 
-  // Збереження або Оновлення новини
+  // ФУНКЦІЯ АВТОМАТИЧНОГО СТИСНЕННЯ ЗОБРАЖЕННЯ (до розміру ~150-250 КБ)
+  const handleFileChange = (e, callback) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const MAX_WIDTH = 1200;
+          const MAX_HEIGHT = 1200;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Стиснення якості зображення
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+          callback(compressedBase64);
+        };
+        img.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Збереження новини
   const handleSaveNews = async (e) => {
     e.preventDefault();
+    if (!newsImage) { alert("Виберіть зображення!"); return; }
     try {
       const newsData = {
         title: newsTitle, date: newsDate, category: newsCategory,
@@ -104,10 +146,10 @@ export default function AdminApp() {
 
       if (editingNewsId) {
         await updateDoc(doc(db, "news", editingNewsId), newsData);
-        alert("Новину успішно оновлено!");
+        alert("Новину оновлено!");
       } else {
         await addDoc(collection(db, "news"), newsData);
-        alert("Новину успішно додано!");
+        alert("Новину додано!");
       }
 
       setEditingNewsId(null); setNewsTitle(''); setNewsDate(''); setNewsCategory(''); setNewsSummary(''); setNewsContent(''); setNewsImage('');
@@ -129,7 +171,7 @@ export default function AdminApp() {
     if (confirm("Видалити новину?")) { await deleteDoc(doc(db, "news", id)); loadData(); }
   };
 
-  // Збереження або Оновлення розкладу
+  // Збереження розкладу
   const handleSaveSchedule = async (e) => {
     e.preventDefault();
     try {
@@ -177,6 +219,7 @@ export default function AdminApp() {
   // Збереження альбому
   const handleSaveAlbum = async (e) => {
     e.preventDefault();
+    if (!albumCover) { alert("Виберіть обкладинку альбому!"); return; }
     try {
       const formattedPhotos = photosList
         .filter(item => item.url.trim() !== '')
@@ -214,7 +257,15 @@ export default function AdminApp() {
     if (confirm("Видалити альбом?")) { await deleteDoc(doc(db, "photoAlbums", id)); loadData(); }
   };
 
-  // Збереження даних Інформації та Контактів
+  const handlePhotoFileChangeInAlbum = (e, index) => {
+    handleFileChange(e, (compressedBase64) => {
+      const updated = [...photosList];
+      updated[index].url = compressedBase64;
+      setPhotosList(updated);
+    });
+  };
+
+  // Збереження Інформації та Контактів
   const handleSaveChurchInfo = async (e) => {
     e.preventDefault();
     try {
@@ -230,10 +281,8 @@ export default function AdminApp() {
         infoContent: infoContent,
         infoImage: infoImage
       });
-      alert("Інформацію про храм успішно збережено!");
-    } catch (err) {
-      alert("Помилка збереження: " + err.message);
-    }
+      alert("Інформацію успішно збережено!");
+    } catch (err) { alert("Помилка: " + err.message); }
   };
 
   if (!isAuthenticated) {
@@ -287,10 +336,22 @@ export default function AdminApp() {
                 <input type="text" placeholder="Заголовок" value={newsTitle} onChange={(e) => setNewsTitle(e.target.value)} required className="p-3 bg-stone-50 rounded-xl border border-stone-200 text-sm" />
                 <input type="text" placeholder="Дата (напр. 14 жовтня 2026)" value={newsDate} onChange={(e) => setNewsDate(e.target.value)} required className="p-3 bg-stone-50 rounded-xl border border-stone-200 text-sm" />
                 <input type="text" placeholder="Категорія" value={newsCategory} onChange={(e) => setNewsCategory(e.target.value)} className="p-3 bg-stone-50 rounded-xl border border-stone-200 text-sm" />
-                <input type="text" placeholder="URL фото" value={newsImage} onChange={(e) => setNewsImage(e.target.value)} required className="p-3 bg-stone-50 rounded-xl border border-stone-200 text-sm" />
+                
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-stone-600">Зображення новини з галереї</label>
+                  <input type="file" accept="image/*" onChange={(e) => handleFileChange(e, setNewsImage)} className="w-full text-xs text-stone-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-amber-50 file:text-amber-800 hover:file:bg-amber-100 cursor-pointer" />
+                </div>
               </div>
+
+              {newsImage && (
+                <div className="w-24 h-24 rounded-xl border overflow-hidden bg-stone-100 p-1">
+                  <img src={newsImage} alt="Попередній перегляд" className="w-full h-full object-contain" />
+                </div>
+              )}
+
               <textarea placeholder="Короткий опис" value={newsSummary} onChange={(e) => setNewsSummary(e.target.value)} rows={2} required className="w-full p-3 bg-stone-50 rounded-xl border border-stone-200 text-sm"></textarea>
               <textarea placeholder="Повний текст" value={newsContent} onChange={(e) => setNewsContent(e.target.value)} rows={4} required className="w-full p-3 bg-stone-50 rounded-xl border border-stone-200 text-sm"></textarea>
+              
               <div className="flex space-x-3">
                 <button type="submit" className="bg-amber-700 hover:bg-amber-800 text-white font-semibold px-6 py-3 rounded-xl text-sm transition cursor-pointer flex items-center space-x-2">
                   <Plus className="w-4 h-4" /><span>{editingNewsId ? 'Зберегти зміни' : 'Опублікувати'}</span>
@@ -400,13 +461,44 @@ export default function AdminApp() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <input type="text" placeholder="Назва альбому" value={albumTitle} onChange={(e) => setAlbumTitle(e.target.value)} required className="p-3 bg-stone-50 rounded-xl border border-stone-200 text-sm" />
                 <input type="text" placeholder="Підзаголовок" value={albumSubtitle} onChange={(e) => setAlbumSubtitle(e.target.value)} required className="p-3 bg-stone-50 rounded-xl border border-stone-200 text-sm" />
-                <input type="text" placeholder="URL обкладинки" value={albumCover} onChange={(e) => setAlbumCover(e.target.value)} required className="p-3 bg-stone-50 rounded-xl border border-stone-200 text-sm" />
+                
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-stone-600">Обкладинка альбому з галереї</label>
+                  <input type="file" accept="image/*" onChange={(e) => handleFileChange(e, setAlbumCover)} className="w-full text-xs text-stone-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-amber-50 file:text-amber-800 hover:file:bg-amber-100 cursor-pointer" />
+                </div>
+
                 <input type="text" placeholder="Дата (напр. Вересень 2026)" value={albumDate} onChange={(e) => setAlbumDate(e.target.value)} required className="p-3 bg-stone-50 rounded-xl border border-stone-200 text-sm" />
               </div>
-              <div className="flex space-x-3">
+
+              {albumCover && (
+                <div className="w-24 h-24 rounded-xl border overflow-hidden bg-stone-100 p-1">
+                  <img src={albumCover} alt="Обкладинка" className="w-full h-full object-contain" />
+                </div>
+              )}
+
+              <div className="space-y-3 pt-2 border-t">
+                <label className="block text-xs font-bold text-stone-700">Фотографії в альбомі</label>
+                {photosList.map((photo, index) => (
+                  <div key={index} className="flex flex-col sm:flex-row items-center gap-3 bg-stone-50 p-3 rounded-xl border">
+                    <input type="file" accept="image/*" onChange={(e) => handlePhotoFileChangeInAlbum(e, index)} className="text-xs text-stone-500 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-stone-200 file:font-semibold cursor-pointer" />
+                    <input type="text" placeholder="Підпис до фото (необов'язково)" value={photo.title} onChange={(e) => {
+                      const updated = [...photosList];
+                      updated[index].title = e.target.value;
+                      setPhotosList(updated);
+                    }} className="flex-grow p-2 bg-white rounded-lg border text-xs" />
+                    {photo.url && <span className="text-xs text-green-700 font-bold">Фото завантажено ✓</span>}
+                    <button type="button" onClick={() => setPhotosList(photosList.filter((_, i) => i !== index))} className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1">Видалити</button>
+                  </div>
+                ))}
+                <button type="button" onClick={() => setPhotosList([...photosList, { url: '', title: '' }])} className="bg-stone-200 hover:bg-stone-300 text-stone-800 text-xs font-bold px-4 py-2 rounded-xl transition cursor-pointer">
+                  + Додати ще одне фото
+                </button>
+              </div>
+
+              <div className="flex space-x-3 pt-2">
                 <button type="submit" className="bg-amber-700 hover:bg-amber-800 text-white font-semibold px-6 py-3 rounded-xl text-sm transition cursor-pointer">{editingAlbumId ? 'Зберегти альбом' : 'Створити'}</button>
                 {editingAlbumId && (
-                  <button type="button" onClick={() => { setEditingAlbumId(null); setAlbumTitle(''); setAlbumSubtitle(''); setAlbumCover(''); setAlbumDate(''); }} className="bg-stone-200 text-stone-700 px-4 py-3 rounded-xl text-sm">Скасувати</button>
+                  <button type="button" onClick={() => { setEditingAlbumId(null); setAlbumTitle(''); setAlbumSubtitle(''); setAlbumCover(''); setAlbumDate(''); setPhotosList([{ url: '', title: '' }]); }} className="bg-stone-200 text-stone-700 px-4 py-3 rounded-xl text-sm">Скасувати</button>
                 )}
               </div>
             </form>
@@ -482,9 +574,14 @@ export default function AdminApp() {
                   <textarea value={infoContent} onChange={(e) => setInfoContent(e.target.value)} rows={5} required className="w-full p-3 bg-stone-50 rounded-xl border border-stone-200 text-sm"></textarea>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-stone-600 mb-1">URL фото Храму в блоці</label>
-                  <input type="text" value={infoImage} onChange={(e) => setInfoImage(e.target.value)} required className="w-full p-3 bg-stone-50 rounded-xl border border-stone-200 text-sm" />
+                  <label className="block text-xs font-bold text-stone-600 mb-1">Фото Храму з галереї</label>
+                  <input type="file" accept="image/*" onChange={(e) => handleFileChange(e, setInfoImage)} className="w-full text-xs text-stone-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-amber-50 file:text-amber-800 hover:file:bg-amber-100 cursor-pointer" />
                 </div>
+                {infoImage && (
+                  <div className="w-32 h-24 rounded-xl border overflow-hidden bg-stone-100 p-1">
+                    <img src={infoImage} alt="Попередній перегляд" className="w-full h-full object-contain" />
+                  </div>
+                )}
               </div>
             </div>
 
